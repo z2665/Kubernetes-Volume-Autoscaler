@@ -2,54 +2,67 @@ name: Docker Image CI
 
 on:
   push:
-    branches: [ "*" ]
-    tags: [ "*" ]
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Image tag
+        required: true
+        default: 1.0.9
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/kubernetes-volume-autoscaler
+  IMAGE_TAG: ${{ inputs.tag || 'latest' }}
 
 jobs:
-  build:
+  build-and-publish:
     runs-on: ubuntu-latest
-
     steps:
-      - name: checkout code
-        uses: actions/checkout@v2
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      # https://github.com/docker/setup-qemu-action
+      - name: Check Python source
+        run: |
+          python3 -m venv /tmp/volume-autoscaler-venv
+          /tmp/volume-autoscaler-venv/bin/pip install --no-cache-dir bandit
+          /tmp/volume-autoscaler-venv/bin/bandit -r . -x ./helm-chart,./examples
+          python3 -m compileall -q main.py helpers.py slack.py
+
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
+        uses: docker/setup-qemu-action@v3
 
-      # https://github.com/docker/setup-buildx-action
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
 
-      - name: Login to registry
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v1
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Build and verify each architecture
+        run: |
+          set -euo pipefail
+          for arch in amd64 arm64; do
+            image="${IMAGE_NAME}:${IMAGE_TAG}-${arch}"
+            docker buildx build --platform "linux/${arch}" --load --provenance=false --sbom=false -t "$image" .
+            docker run --rm --platform "linux/${arch}" --entrypoint python "$image" \
+              -c 'import kubernetes, packaging, prometheus_client, requests; print("dependency imports passed")'
+            docker run --rm \
+              -v /var/run/docker.sock:/var/run/docker.sock \
+              -v "$HOME/.cache:/root/.cache" \
+              aquasec/trivy:0.76.2 image \
+              --exit-code 1 --scanners vuln --pkg-types os,library \
+              --severity HIGH,CRITICAL "$image"
+          done
 
-      - name: Docker meta
-        id: meta_id
-        uses: docker/metadata-action@v3
+      - name: Login to GHCR
+        uses: docker/login-action@v3
         with:
-          # list of Docker images to use as base name for tags
-          images: |
-            devopsnirvana/kubernetes-volume-autoscaler
-          # Docker tags based on the following events/attributes
-          tags: |
-            type=schedule
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=sha
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push
-        uses: docker/build-push-action@v2
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta_id.outputs.tags }}
-          labels: ${{ steps.meta_id.outputs.labels }}
+      - name: Publish multi-architecture image
+        run: |
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --push --provenance=false --sbom=false -t "${IMAGE_NAME}:${IMAGE_TAG}" .

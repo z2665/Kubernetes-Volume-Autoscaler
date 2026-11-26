@@ -1,16 +1,28 @@
-# Globals and input args
-FROM python:3.11.5-alpine3.18
+FROM python:3.13-alpine3.23@sha256:bf88c40985006a79ca25458159a4da1dffc457f9ae234e948b2d6df56ca5ebd2 AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+RUN apk upgrade --no-cache && \
+    python -m pip install --no-cache-dir --upgrade pip
+
 WORKDIR /app
-
-# Prepare our app requirements and install it...
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt && \
-# Due to CVE-2022-40897 removing setuptools
-    pip install setuptools --upgrade
+RUN python -m pip install --no-cache-dir -r requirements.txt && \
+    python -m pip uninstall -y pip setuptools wheel && \
+    rm -rf /usr/local/lib/python3.13/ensurepip
 
-# Install our code
 COPY *.py ./
 RUN chmod a+x /app/main.py
 
-# Setup our entrypoint command to run on docker run
-CMD [ "python", "-u", "./main.py" ]
+FROM scratch
+LABEL org.opencontainers.image.source="https://github.com/z2665/Kubernetes-Volume-Autoscaler" \
+      org.opencontainers.image.version="1.0.9"
+COPY --from=runtime / /
+ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    LANG=C.UTF-8 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+WORKDIR /app
+USER 10001:10001
+CMD ["python", "-u", "./main.py"]

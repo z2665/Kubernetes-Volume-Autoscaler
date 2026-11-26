@@ -51,10 +51,10 @@ replicaCount: 1
 deploymentStrategy:
   type: Recreate
 
-# Our image is on DockerHub, replace tag during builds automatically
+# Image registry and tag
 image:
-  repository: devopsnirvana/kubernetes-volume-autoscaler
-  tag: latest  # This should be replaced with an semver tag release automatically during CI for releases
+  repository: ghcr.io/z2665/kubernetes-volume-autoscaler
+  tag: 1.0.9  # This should be replaced with an semver tag release automatically during CI for releases
 
 globalEnvs:
   ####################################
@@ -235,7 +235,7 @@ rbac:
   clusterWideAccess: true
   rules:
     # This is how we listen and update PVCs
-    - apiGroups: ['*']
+    - apiGroups: [""]
       resources: ['persistentvolumeclaims']
       verbs:
         - list
@@ -269,6 +269,11 @@ ingress_secondary:
 autoscaling:
   enabled: false
 security:
-  runAsNonRoot: false
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
 sidecar:
   enabled: false
