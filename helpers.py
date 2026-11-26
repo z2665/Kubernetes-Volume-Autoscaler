@@ -6,7 +6,7 @@ import kubernetes              # For talking to the Kubernetes API
 from kubernetes.client import ApiException
 from packaging import version  # For checking if prometheus version is new enough to use a new function present_over_time()
 import signal                  # For sigkill handling
-import random                  # Random string generation
+import secrets                 # Cryptographically secure random string generation
 import traceback               # Debugging/trace outputs
 import slack                   # For sending slack messages
 
@@ -149,7 +149,7 @@ def printHeaderAndConfiguration():
     print("                        Dry Run: {}".format("ENABLED, no scaling will occur!" if DRY_RUN else "disabled"))
     print("     HTTP Timeouts for k8s/prom: {} seconds".format(HTTP_TIMEOUT))
     print("           VictoriaMetrics mode: {}".format("ENABLED" if VICTORIAMETRICS_COMPAT else "disabled"))
-    print("X-Scope-OrgID Header for Cortex: {}".format(SCOPE_ORGID_AUTH_HEADER if len(SCOPE_ORGID_AUTH_HEADER) else "disabled"))
+    print("X-Scope-OrgID Header for Cortex: {}".format("ENABLED" if len(SCOPE_ORGID_AUTH_HEADER) else "disabled"))
     print(" Sending notifications to Slack: {}".format("ENABLED" if len(slack.SLACK_WEBHOOK_URL) > 0 else "disabled"))
     if len(slack.SLACK_WEBHOOK_URL) > 0:
         print("                  Slack channel: {}".format(slack.SLACK_CHANNEL))
@@ -556,7 +556,7 @@ def send_kubernetes_event(namespace, name, reason, message, type="Normal"):
         source = kubernetes.client.V1EventSource(component="volume-autoscaler")
         metadata = kubernetes.client.V1ObjectMeta(
             namespace=namespace,
-            name=name + ''.join([random.choice('123456789abcdef') for n in range(16)]),
+            name=name + ''.join([secrets.choice('123456789abcdef') for n in range(16)]),
         )
 
         # Generate our event body with the reason and message set
